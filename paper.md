@@ -1,104 +1,71 @@
 ---
-title: 'Music separation is all you need'
+title: 'Danna-Sep: the ultimate music source separation tool'
 tags:
   - separation
+  - music information retrieval
+  - audio signal processing
+  - artificial intelligence
   - u-net
+  - lstm
+  - end-to-end learning
 authors:
-  - name: Adrian M. Price-Whelan^[co-first author] # note this makes a footnote saying 'co-first author'
-    orcid: 0000-0003-0872-7098
-    affiliation: "1, 2" # (Multiple affiliations must be quoted)
-  - name: Author Without ORCID^[co-first author] # note this makes a footnote saying 'co-first author'
+  - name: Chin-Yun Yu
+    affiliation: 1
+  - name: Kin-Wai Chuek
     affiliation: 2
-  - name: Author with no affiliation^[corresponding author]
-    affiliation: 3
 affiliations:
- - name: Lyman Spitzer, Jr. Fellow, Princeton University
-   index: 1
- - name: Institution Name
-   index: 2
  - name: Independent Researcher
-   index: 3
-date: 10 August 2021
+   index: 1
+ - name: Singapore University of Technology and Design
+   index: 2
+date: 14 September 2021
 bibliography: paper.bib
-arxiv-doi: 10.21105/joss.01667
 ---
 
-# Summary
+# Abstract
 
-The forces on stars, galaxies, and dark matter under external gravitational
-fields lead to the dynamical evolution of structures in the universe. The orbits
-of these bodies are therefore key to understanding the formation, history, and
-future state of galaxies. The field of "galactic dynamics," which aims to model
-the gravitating components of galaxies to study their structure and evolution,
-is now well-established, commonly taught, and frequently used in astronomy.
-Aside from toy problems and demonstrations, the majority of problems require
-efficient numerical tools, many of which require the same base code (e.g., for
-performing numerical orbit integration).
+In the last decade, using deep learning to solve music source separation problems has gained a lot of interests progressively. Different types of models have been proposed, and most of them can be categorized into two categories: one that uses time-frequency representation like Short-Time Fourier Transform (STFT) as input to the model, or the other one that directly operate on time domain signals. 
 
-# Statement of need
+The choice of representations could affect the separation result. It has been shown that time-domain models tend to have better performances on percussions and bass instruments, while frequency-domain models are more capable on harmonic instruments like vocals [@defossez2019music]. We tried to mitigate this problem by blending different models together with a relatively naive approach. The resulting model, Danna-Sep^[<https://github.com/yoyololicon/danna-sep>], surpassed published state-of-the-art by a large margin in respect to Signal-to-Distortion Ratio (SDR) [@vincent2006performance]. 
 
-`Gala` is an Astropy-affiliated Python package for galactic dynamics. Python
-enables wrapping low-level languages (e.g., C) for speed without losing
-flexibility or ease-of-use in the user-interface. The API for `Gala` was
-designed to provide a class-based and user-friendly interface to fast (C or
-Cython-optimized) implementations of common operations such as gravitational
-potential and force evaluation, orbit integration, dynamical transformations,
-and chaos indicators for nonlinear dynamics. `Gala` also relies heavily on and
-interfaces well with the implementations of physical units and astronomical
-coordinate systems in the `Astropy` package [@astropy] (`astropy.units` and
-`astropy.coordinates`).
+# Method
 
-`Gala` was designed to be used by both astronomical researchers and by
-students in courses on gravitational dynamics or astronomy. It has already been
-used in a number of scientific publications [@Pearson:2017] and has also been
-used in graduate courses on Galactic dynamics to, e.g., provide interactive
-visualizations of textbook material [@Binney:2008]. The combination of speed,
-design, and support for Astropy functionality in `Gala` will enable exciting
-scientific explorations of forthcoming data releases from the *Gaia* mission
-[@gaia] by students and experts alike.
+The output of Danna-Sep is computed by blending three different models. The first one is X-UMX [@sawata20]. We trained it using the same loss function as the original, but modified the frequency domain loss to the following equation:
 
-# Mathematics
+$$\mathcal{L}_{MSE}^J = \sum_{j=1}^J\sum_{t,f}|Y_j(t, f) - \hat{Y}_j(t, f)|^2$$
 
-Single dollars ($) are required for inline mathematics e.g. $f(x) = e^{\pi/x}$
+Also, we incorporated Multichannel Wiener Filtering (MWF)[@antoine_liutkus_2019_3269749] into our training pipeline in order to train in an end-to-end fashion. The training was done by using the official X-UMX model as initial values and continue training around 70 epochs with a batch size of 4.
 
-Double dollars make self-standing equations:
+The second one was originated from Demucs [@defossez2019music]. We chose the version with 48 hidden channel size as our starting point, then we replaced the decoder part of the network by four independent decoders, each of which corresponds to one source. These four decoders have the same architecture compared to the original decoder network while the hidden channel size was reduced to 24 so the total number of parameters is roughly the same. The training loss is a L1-norm between predicted waveform and source-target waveform, and it took about 10 days to train on a single RTX 3070 using mixed precision with a batch size of 16, 4 steps of gradient accumulation.
 
-$$\Theta(x) = \left\{\begin{array}{l}
-0\textrm{ if } x < 0\cr
-1\textrm{ else}
-\end{array}\right.$$
+The third one is a U-Net with 6 layers for the decoder and the encoder. We use D3 Block [@Takahashi2021CVPR] for each layer and add two layers of 2D local attention [@parmar2018image] at the bottleneck. The same loss fucntion we trained on X-UMX was used with MWF being disabled. Training time took approximately 9 days with a batch size of 16 on four Tesla V100.
 
-You can also use plain \LaTeX for equations
-\begin{equation}\label{eq:fourier}
-\hat f(\omega) = \int_{-\infty}^{\infty} f(x) e^{i\omega x} dx
-\end{equation}
-and refer to \autoref{eq:fourier} from text.
+Finally, we multiply each source from each model with different weights, and take summation among the models as our final values. The weights for each source, representation type, and the size of the models are given in the following table.
 
-# Citations
+|         | Drums | Bass | Other | Vocals | Input Domain | Size (Mb) |
+|---------|:-----:|:----:|:-----:|:------:|:------------:|:---------:|
+| X-UMX   | 0.2   | 0.1  | 0     | 0.2    | TF | 136
+| U-Net   | 0.2   | 0.17 | 0.5   | 0.4    | TF | 61
+| Demucs  | 0.6   | 0.73 | 0.5   | 0.4    | T | 733
 
-Citations to entries in paper.bib should be in
-[rMarkdown](http://rmarkdown.rstudio.com/authoring_bibliographies_and_citations.html)
-format.
+All models were trained on the training set of musdb18-hq [@musdb18-hq] using Adam [@kingma2014adam]. 
 
-If you want to cite a software repository URL (e.g. something on GitHub without a preferred
-citation) then you can do it with the example BibTeX entry below for @fidgit.
+# Separation performances
 
-For a quick reference, the following citation commands can be used:
-- `@author:2001`  ->  "Author et al. (2001)"
-- `[@author:2001]` -> "(Author et al., 2001)"
-- `[@author1:2001; @author2:2001]` -> "(Author1 et al., 2001; Author2 et al., 2002)"
+We evaluated our models in terms of SDR scores on musdb18 dataset [@musdb18] using the *museval* toolbox [@fabian_robert_stoter_2019_3376621]. One iteration of MWF was used for X-UMX and U-Net, and we didn't apply the shift trick [@defossez2019music] for our Demucs model. The results are presented in the following table compared to the original X-UMX and Demucs, which is, to author's knowledge, the only published system that has state-of-the-art performances. These baselines^[<https://zenodo.org/record/4740378/files/pretrained_xumx_musdb18HQ.pth>] were also trained on musdb18-hq for a fair comparison. As can be seen, our X-UMX gains extra 0.27 dB on average than the original X-UMX, and our Demucs scores are on par with the original Demucs even the shift trick has not been applied. These results shows the effectiveness of our training method and architecture changes to the models. Furthermore, the score of Danna-Sep even surpass Demucs by a great margin (+0.5 dB on average), which implies the importance of blending.
 
-# Figures
+|         | Drums | Bass | Other | Vocals | Avg. |
+|---------|:-----:|:----:|:-----:|:------:|:----:|
+| X-UMX (baseline) | 6.44 | 5.54 | 4.46 | 6.54 | 5.75
+| U-Net (ours) | 6.43 | 5.35 | 4.67 | 7.05 | 5.87
+| X-UMX (ours) | 6.71 | 5.79 | 4.63 | 6.93 | 6.02
+| Demucs (baseline) | 6.67 | 6.98 | 4.33 | 6.89 | 6.21 
+| Demucs (ours) | 6.72 | 6.97 | 4.4 | 6.88 | 6.24
+| Danna-Sep | 7.2 | 7.05 | 5.2 | 7.63 | 6.77
 
-Figures can be included like this:
-
-![Caption for example figure.](https://raw.githubusercontent.com/mdx-workshop/mdx-workshop.github.io/master/banner.jpg){ width=40% }
-
-and referenced from text using \autoref{fig:example}.
 
 # Acknowledgements
 
-We acknowledge contributions from Brigitta Sipocz, Syrtis Major, and Semyeong
-Oh, and support from Kathryn Johnston during the genesis of this project.
+We acknowledge contributions from Sung-Lin Yeh and Yu-Te Wu , and supports from Yin-Jyun Luo and Showmin Wang during the genesis of this project.
 
 # References
